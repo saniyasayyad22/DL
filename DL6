@@ -1,0 +1,99 @@
+!pip install -q tensorflow tensorflow-datasets
+import tensorflow as tf
+import tensorflow_datasets as tfds
+from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
+from tensorflow.keras import layers, models
+from tensorflow.keras.callbacks import EarlyStopping
+import numpy as np
+import matplotlib.pyplot as plt
+train_split = "train[:70%]"
+val_split   = "train[70%:85%]"
+test_split  = "train[85%:]"
+
+ds_train = tfds.load("tf_flowers", split=train_split, as_supervised=True)
+ds_val   = tfds.load("tf_flowers", split=val_split,   as_supervised=True)
+ds_test  = tfds.load("tf_flowers", split=test_split,  as_supervised=True)
+IMG_SIZE = 96
+BATCH = 16
+
+def preprocess(image, label):
+    image = tf.image.resize(image, (IMG_SIZE, IMG_SIZE))
+    image = tf.cast(image, tf.float32)
+    image = preprocess_input(image)
+    return image, label
+
+ds_train = ds_train.map(preprocess).shuffle(2048).batch(BATCH).prefetch(tf.data.AUTOTUNE)
+ds_val   = ds_val.map(preprocess).batch(BATCH).prefetch(tf.data.AUTOTUNE)
+ds_test  = ds_test.map(preprocess).batch(BATCH).prefetch(tf.data.AUTOTUNE)
+base_model = MobileNetV2(weights="imagenet", include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
+base_model.trainable = False
+
+model = models.Sequential([
+    base_model,
+    layers.GlobalAveragePooling2D(),
+    layers.Dense(64, activation='relu'),
+    layers.Dropout(0.2),
+    layers.Dense(5, activation='softmax')
+])
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+es = EarlyStopping(monitor='val_accuracy', patience=2, restore_best_weights=True)
+
+history = model.fit(ds_train,
+                    validation_data=ds_val,
+                    epochs=5,      # quick training
+                    callbacks=[es],
+                    verbose=1)
+loss, acc = model.evaluate(ds_test, verbose=0)
+print(f"✅ Test Accuracy: {acc:.4f} | Test Loss: {loss:.4f}")
+plt.plot(history.history['accuracy'])
+plt.title('Model Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend(['train'], loc='upper left')
+plt.show()
+class_names = ['Dandelion', 'Daisy', 'Tulips', 'Sunflowers', 'Roses']
+
+# Take 5 random test images
+sample_images, sample_labels = [], []
+for img, label in ds_test.unbatch().shuffle(100).take(5):
+    sample_images.append(img)
+    sample_labels.append(label.numpy())
+
+sample_images = tf.stack(sample_images)
+pred_probs = model.predict(sample_images)
+pred_classes = np.argmax(pred_probs, axis=1)
+
+# Display predictions
+plt.figure(figsize=(10,5))
+for i in range(len(sample_images)):
+    plt.subplot(1, 5, i+1)
+    plt.imshow(tf.cast(sample_images[i], tf.uint8))
+    plt.axis("off")
+    plt.title(f"Pred: {class_names[pred_classes[i]]}\nTrue: {class_names[sample_labels[i]]}",
+              fontsize=9)
+plt.show()
+# load raw test once (no preprocessing)
+raw_test = tfds.load("tf_flowers", split="train[85%:]", as_supervised=True)
+
+display_imgs, model_imgs, sample_labels = [], [], []
+for img, label in raw_test.shuffle(200).take(5):
+    img_resized = tf.image.resize(img, (IMG_SIZE, IMG_SIZE))
+    display_imgs.append(tf.cast(img_resized, tf.uint8))                     # for plotting
+    model_imgs.append(preprocess_input(tf.cast(img_resized, tf.float32)))   # for prediction
+    sample_labels.append(label.numpy())
+
+model_imgs = tf.stack(model_imgs)
+pred_probs = model.predict(model_imgs, verbose=0)
+pred_classes = np.argmax(pred_probs, axis=1)
+
+plt.figure(figsize=(10,5))
+for i in range(len(display_imgs)):
+    plt.subplot(1, 5, i+1)
+    plt.imshow(display_imgs[i])
+    plt.axis("off")
+    plt.title(f"Pred: {class_names[pred_classes[i]]}\nTrue: {class_names[sample_labels[i]]}",
+              fontsize=9)
+plt.show()
