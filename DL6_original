@@ -1,0 +1,59 @@
+import tensorflow as tf
+import tensorflow_datasets as tfds
+from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
+from tensorflow.keras import layers, models
+from tensorflow.keras.callbacks import EarlyStopping
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load dataset
+dataset, info = tfds.load('rock_paper_scissors', with_info=True, as_supervised=True)
+train_ds = dataset['train']
+test_ds = dataset['test']
+
+# Preprocessing
+IMG_SIZE = 160
+
+def format_example(image, label):
+    image = tf.image.resize(image, (IMG_SIZE, IMG_SIZE))
+    image = preprocess_input(image)
+    return image, label
+
+ds_train = train_ds.map(format_example).batch(32)
+ds_val = test_ds.map(format_example).batch(32)
+
+# Load Pre-trained CNN
+base_model = MobileNetV2(weights="imagenet", include_top=False, input_shape=(IMG_SIZE, IMG_SIZE, 3))
+base_model.trainable = False   # Freeze lower layers
+
+# Add custom classifier
+model = models.Sequential([
+    base_model,
+    layers.GlobalAveragePooling2D(),
+    layers.Dense(64, activation='relu'),
+    layers.Dropout(0.2),
+    layers.Dense(5, activation='softmax')
+])
+
+# Compile
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Early stopping
+es = EarlyStopping(monitor='val_accuracy', patience=2, restore_best_weights=True)
+
+# Train model
+history = model.fit(ds_train,
+                    validation_data=ds_val,
+                    epochs=5,
+                    callbacks=[es],
+                    verbose=1)
+
+# Plot accuracy
+plt.plot(history.history['accuracy'])
+plt.title('Model Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend(['train'], loc='upper left')
+plt.show()
