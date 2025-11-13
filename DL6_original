@@ -51,9 +51,12 @@ history = model.fit(ds_train,
                     verbose=1)
 
 # Plot accuracy
+# Plot training and validation accuracy
 plt.plot(history.history['accuracy'])
+plt.plot(history.history['val_accuracy'])
 plt.title('Model Accuracy')
 plt.xlabel('Epoch')
 plt.ylabel('Accuracy')
-plt.legend(['train'], loc='upper left')
+plt.legend(['train', 'validation'], loc='upper left')
 plt.show()
+
